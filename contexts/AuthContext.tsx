@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import {
-  onAuthStateChanged, signInWithRedirect,
+  onAuthStateChanged, signInWithRedirect, signInWithPopup,
   getRedirectResult, signOut, User,
 } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
@@ -54,10 +54,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle() {
     setAuthError(null);
     try {
-      await signInWithRedirect(auth, googleProvider);
+      await signInWithPopup(auth, googleProvider);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      setAuthError(`Error al iniciar sesión (${code || 'desconocido'}). Intenta de nuevo.`);
+      if (code === 'auth/popup-blocked') {
+        // Desktop browser blocking popups → full redirect
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (redirectErr: unknown) {
+          const rCode = (redirectErr as { code?: string }).code ?? '';
+          setAuthError(`Error (${rCode || 'desconocido'}). Intenta de nuevo.`);
+        }
+      } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        setAuthError(`Error (${code || 'desconocido'}). Intenta de nuevo.`);
+      }
     }
   }
 
