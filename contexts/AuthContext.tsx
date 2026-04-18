@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import {
-  onAuthStateChanged, signInWithRedirect, signInWithPopup,
+  onAuthStateChanged, signInWithRedirect,
   getRedirectResult, signOut, User,
 } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
@@ -33,8 +33,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Handle redirect result (mobile flow)
-    getRedirectResult(auth).catch(() => {});
+    getRedirectResult(auth)
+      .then(result => {
+        if (result?.user) setUser(toAppUser(result.user));
+      })
+      .catch((err: unknown) => {
+        const code = (err as { code?: string }).code ?? '';
+        if (code && code !== 'auth/no-current-user') {
+          setAuthError(`Error (${code}). Verifica la configuración de Firebase.`);
+        }
+      });
 
     const unsub = onAuthStateChanged(auth, (firebaseUser: User | null) => {
       setUser(firebaseUser ? toAppUser(firebaseUser) : null);
@@ -46,20 +54,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle() {
     setAuthError(null);
     try {
-      // Try popup first (desktop), fall back to redirect (mobile)
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request'
-      ) {
-        // Popup blocked → use redirect (works on all mobile browsers)
-        await signInWithRedirect(auth, googleProvider);
-      } else if (code !== 'auth/cancelled-popup-request') {
-        setAuthError('Error al iniciar sesión. Intenta de nuevo.');
-      }
+      setAuthError(`Error al iniciar sesión (${code || 'desconocido'}). Intenta de nuevo.`);
     }
   }
 
