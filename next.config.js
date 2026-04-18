@@ -6,6 +6,15 @@ const nextConfig = {
       { protocol: 'https', hostname: 'googleusercontent.com' },
     ],
   },
+  // Proxy Firebase auth handler to same domain — fixes Safari ITP cookie blocking
+  async rewrites() {
+    return [
+      {
+        source: '/__/auth/:path*',
+        destination: 'https://leyva-3c8aa.firebaseapp.com/__/auth/:path*',
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
