@@ -57,16 +57,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithPopup(auth, googleProvider);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/popup-blocked') {
-        // Desktop browser blocking popups → full redirect
+      const msg = (err as { message?: string }).message ?? String(err);
+      if (code === 'auth/popup-blocked' || msg.toLowerCase().includes('blocked')) {
         try {
           await signInWithRedirect(auth, googleProvider);
         } catch (redirectErr: unknown) {
           const rCode = (redirectErr as { code?: string }).code ?? '';
-          setAuthError(`Error (${rCode || 'desconocido'}). Intenta de nuevo.`);
+          const rMsg = (redirectErr as { message?: string }).message ?? String(redirectErr);
+          setAuthError(`Error redirect: ${rCode || rMsg}`);
         }
       } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-        setAuthError(`Error (${code || 'desconocido'}). Intenta de nuevo.`);
+        setAuthError(`Error: ${code || msg}`);
       }
     }
   }
