@@ -38,6 +38,7 @@ export default function AddAccountModal({ open, onClose }: Props) {
       setBalance('');
       setType('checking');
       setColor(ACCOUNT_COLORS[0]);
+      setCurrency('USD');
     } finally {
       setSaving(false);
     }

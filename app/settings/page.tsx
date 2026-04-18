@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/components/ThemeProvider';
 import BottomNav from '@/components/BottomNav';
-import { useState } from 'react';
 import AddMovementModal from '@/components/AddMovementModal';
 import {
   Sun, Moon, Smartphone, ChevronRight, LogOut,

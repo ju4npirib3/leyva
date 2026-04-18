@@ -43,10 +43,12 @@ export default function AddMovementModal({ open, onClose, defaultType = 'expense
         date: Date.now(),
         createdAt: Date.now(),
       });
-      onClose();
       setAmount('');
       setDescription('');
       setCategory('');
+      setType(defaultType);
+      setAccountId(accounts[0]?.id ?? '');
+      onClose();
     } finally {
       setSaving(false);
     }

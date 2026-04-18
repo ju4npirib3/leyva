@@ -1,6 +1,6 @@
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, orderBy, onSnapshot, setDoc, getDoc, Unsubscribe,
+  query, orderBy, onSnapshot, Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Account, Movement, Shortcut } from '@/types';
