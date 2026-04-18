@@ -11,7 +11,10 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const hasConfig = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const app = hasConfig
+  ? getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+  : getApps()[0] ?? initializeApp({ apiKey: 'placeholder', projectId: 'placeholder', authDomain: 'placeholder' });
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
