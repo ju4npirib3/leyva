@@ -17,7 +17,8 @@ import {
 import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
 import MovementDetailSheet from './MovementDetailSheet';
 import EditAccountModal from './EditAccountModal';
-import type { Account, Movement } from '@/types';
+import MsiDetailSheet from './MsiDetailSheet';
+import type { Account, Movement, MsiPlan } from '@/types';
 
 interface Props {
   account: Account | null;
@@ -25,13 +26,33 @@ interface Props {
   onDelete?: (id: string) => void;
 }
 
+function calcPaidMonths(startDate: number, cutoffDay: number | undefined, totalMonths: number): number {
+  if (!cutoffDay) {
+    const start = new Date(startDate);
+    const now = new Date();
+    const elapsed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    return Math.min(Math.max(0, elapsed), totalMonths);
+  }
+  const now = new Date();
+  let count = 0;
+  const start = new Date(startDate);
+  let cutoff = new Date(start.getFullYear(), start.getMonth(), cutoffDay);
+  if (cutoff <= start) cutoff = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, cutoffDay);
+  while (cutoff <= now && count < totalMonths) {
+    count++;
+    cutoff = new Date(cutoff.getFullYear(), cutoff.getMonth() + 1, cutoffDay);
+  }
+  return count;
+}
+
 export default function AccountDetailSheet({ account, onClose, onDelete }: Props) {
-  const { movements, addMovementFn } = useApp();
+  const { movements, addMovementFn, msiPlans } = useApp();
   const [payAmount, setPayAmount] = useState('');
   const [paying, setPaying] = useState(false);
   const [showPayInput, setShowPayInput] = useState(false);
   const [selectedMovement, setSelectedMovement] = useState<Movement | null>(null);
   const [showEdit, setShowEdit] = useState(false);
+  const [selectedMsi, setSelectedMsi] = useState<MsiPlan | null>(null);
   const dragControls = useDragControls();
 
   // Body scroll lock
@@ -255,6 +276,39 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
                 </div>
               )}
 
+              {/* MSI Plans — credit cards only */}
+              {isCredit && (() => {
+                const activePlans = msiPlans.filter(p => p.accountId === account.id && calcPaidMonths(p.startDate, account.cutoffDay, p.months) < p.months);
+                if (activePlans.length === 0) return null;
+                return (
+                  <div className="mx-4 mt-3">
+                    <p className="font-bold text-neutral-900 dark:text-white text-sm mb-2">📅 MSI Activos</p>
+                    <div className="space-y-2">
+                      {activePlans.map(plan => {
+                        const paid = calcPaidMonths(plan.startDate, account.cutoffDay, plan.months);
+                        const pct = (paid / plan.months) * 100;
+                        return (
+                          <button
+                            key={plan.id}
+                            onClick={() => setSelectedMsi(plan)}
+                            className="w-full bg-white dark:bg-neutral-800 rounded-2xl p-3.5 text-left active:scale-[0.98] transition-transform"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="font-semibold text-neutral-900 dark:text-white text-sm truncate flex-1 mr-2">{plan.description}</p>
+                              <p className="font-black text-accent text-sm flex-shrink-0">${(plan.monthlyPayment).toFixed(2)}/mes</p>
+                            </div>
+                            <div className="h-1.5 bg-neutral-100 dark:bg-neutral-700 rounded-full overflow-hidden mb-1.5">
+                              <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <p className="text-[11px] text-neutral-400">{paid} de {plan.months} meses pagados · ${(plan.totalAmount - paid * plan.monthlyPayment).toFixed(2)} restante</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Pay card button */}
               {isCredit && account.balance > 0 && (
                 <div className="mx-4 mt-3">
@@ -451,6 +505,13 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
           <EditAccountModal
             account={showEdit ? account : null}
             onClose={() => setShowEdit(false)}
+          />
+
+          <MsiDetailSheet
+            plan={selectedMsi}
+            cutoffDay={account?.cutoffDay}
+            currency={account?.currency ?? 'MXN'}
+            onClose={() => setSelectedMsi(null)}
           />
         </>
       )}

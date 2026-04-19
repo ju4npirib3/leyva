@@ -39,6 +39,20 @@ export interface Movement {
   establishment?: string;   // Optional merchant / store name
   date: number;
   createdAt: number;
+  msiPlanId?: string;       // links this movement to an MSI plan
+}
+
+export interface MsiPlan {
+  id: string;
+  accountId: string;
+  accountName: string;
+  description: string;
+  totalAmount: number;
+  months: number;
+  monthlyPayment: number;   // = totalAmount / months
+  startDate: number;        // timestamp of the purchase date
+  movementId: string;       // the expense movement that was created
+  createdAt: number;
 }
 
 export interface Shortcut {

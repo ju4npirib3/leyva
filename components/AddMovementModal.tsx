@@ -53,7 +53,7 @@ export default function AddMovementModal({
   defaultEstablishment,
 }: Props) {
   const { user } = useAuth();
-  const { accounts, movements, addMovementFn, expenseCategories, incomeCategories } = useApp();
+  const { accounts, movements, addMovementFn, addMsiPlanFn, expenseCategories, incomeCategories } = useApp();
 
   const [type, setType] = useState<MovementType>(defaultType);
   const [amount, setAmount] = useState('');
@@ -63,6 +63,8 @@ export default function AddMovementModal({
   const [establishment, setEstablishment] = useState('');
   const [selectedDate, setSelectedDate] = useState(todayString);
   const [saving, setSaving] = useState(false);
+  const [isMsi, setIsMsi] = useState(false);
+  const [msiMonths, setMsiMonths] = useState(12);
   const dragControls = useDragControls();
 
   // Voice
@@ -130,6 +132,8 @@ export default function AddMovementModal({
     setEstablishment('');
     setSelectedDate(todayString());
     setVoiceError('');
+    setIsMsi(false);
+    setMsiMonths(12);
     stopListening();
     onClose();
   }
@@ -202,7 +206,7 @@ export default function AddMovementModal({
     if (!account) return;
     setSaving(true);
     try {
-      await addMovementFn({
+      const movData = {
         accountId: aid,
         accountName: account.name,
         type,
@@ -212,7 +216,12 @@ export default function AddMovementModal({
         establishment: establishment.trim() || undefined,
         date: dateStringToTs(selectedDate),
         createdAt: Date.now(),
-      });
+      };
+      if (isMsi && type === 'expense' && account.type === 'credit') {
+        await addMsiPlanFn(movData, msiMonths);
+      } else {
+        await addMovementFn(movData);
+      }
       resetAndClose();
     } finally {
       setSaving(false);
@@ -395,6 +404,61 @@ export default function AddMovementModal({
                       <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
                     </div>
                   </div>
+
+                  {/* MSI toggle — only for credit card expense */}
+                  {type === 'expense' && accounts.find(a => a.id === effectiveAccountId)?.type === 'credit' && (
+                    <div className="mb-4">
+                      <button
+                        onClick={() => setIsMsi(v => !v)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-semibold transition-all',
+                          isMsi ? 'bg-accent text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>📅</span>
+                          <span className="text-sm">Meses sin intereses (MSI)</span>
+                        </div>
+                        <div className={cn(
+                          'w-10 h-6 rounded-full transition-all relative',
+                          isMsi ? 'bg-white/30' : 'bg-neutral-300 dark:bg-neutral-600'
+                        )}>
+                          <div className={cn(
+                            'absolute top-1 w-4 h-4 rounded-full bg-white transition-all',
+                            isMsi ? 'left-5' : 'left-1'
+                          )} />
+                        </div>
+                      </button>
+
+                      {isMsi && (
+                        <div className="mt-3 bg-accent/5 dark:bg-accent/10 rounded-2xl p-4">
+                          <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-2">Número de meses</p>
+                          <div className="flex gap-2 flex-wrap">
+                            {[3, 6, 9, 12, 18, 24].map(m => (
+                              <button
+                                key={m}
+                                onClick={() => setMsiMonths(m)}
+                                className={cn(
+                                  'px-4 py-2 rounded-xl text-sm font-bold transition-all',
+                                  msiMonths === m ? 'bg-accent text-white' : 'bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
+                                )}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                          {amount && parseFloat(amount) > 0 && (
+                            <div className="mt-3 pt-3 border-t border-accent/20 flex items-center justify-between">
+                              <span className="text-xs text-neutral-500">Mensualidad</span>
+                              <span className="font-black text-accent text-base">
+                                ${(parseFloat(amount) / msiMonths).toFixed(2)}/mes
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Establishment */}
                   <div className="mb-4 relative">

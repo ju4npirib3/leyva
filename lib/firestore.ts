@@ -3,7 +3,7 @@ import {
   query, orderBy, onSnapshot, Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { Account, Movement, Shortcut, CustomCategory } from '@/types';
+import type { Account, Movement, Shortcut, CustomCategory, MsiPlan } from '@/types';
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
@@ -91,4 +91,22 @@ export async function saveAllCategories(uid: string, cats: CustomCategory[]): Pr
   await Promise.all(cats.map(c => setDoc(doc(db, `users/${uid}/categories/${c.id}`), {
     name: c.name, icon: c.icon, type: c.type,
   })));
+}
+
+// ── MSI Plans ─────────────────────────────────────────────────────────────────
+
+export function subscribeMsiPlans(uid: string, cb: (plans: MsiPlan[]) => void): Unsubscribe {
+  const q = query(collection(db, `users/${uid}/msiPlans`), orderBy('createdAt', 'desc'));
+  return onSnapshot(q, snap => {
+    cb(snap.docs.map(d => ({ id: d.id, ...d.data() } as MsiPlan)));
+  });
+}
+
+export async function addMsiPlan(uid: string, data: Omit<MsiPlan, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, `users/${uid}/msiPlans`), data);
+  return ref.id;
+}
+
+export async function deleteMsiPlan(uid: string, id: string): Promise<void> {
+  await deleteDoc(doc(db, `users/${uid}/msiPlans/${id}`));
 }

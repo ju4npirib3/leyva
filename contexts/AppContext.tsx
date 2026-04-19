@@ -6,9 +6,10 @@ import {
   subscribeAccounts, subscribeMovements, subscribeShortcuts,
   addAccount, updateAccount, deleteAccount, addMovement, deleteMovement, saveShortcuts,
   subscribeCategories, saveCategory, saveAllCategories, migrateAllAccountsToCurrency,
+  subscribeMsiPlans, addMsiPlan, deleteMsiPlan,
 } from '@/lib/firestore';
 import { DEFAULT_SHORTCUTS, DEFAULT_EXPENSE_CATS, DEFAULT_INCOME_CATS, calcPercentChange } from '@/lib/utils';
-import type { Account, Movement, Shortcut, CustomCategory } from '@/types';
+import type { Account, Movement, Shortcut, CustomCategory, MsiPlan } from '@/types';
 
 interface AppContextValue {
   accounts: Account[];
@@ -16,6 +17,7 @@ interface AppContextValue {
   shortcuts: Shortcut[];
   expenseCategories: CustomCategory[];
   incomeCategories: CustomCategory[];
+  msiPlans: MsiPlan[];
   totalBalance: number;
   balanceChange: number;
   last24hIncome: number;
@@ -30,6 +32,8 @@ interface AppContextValue {
   updateShortcutsFn: (shortcuts: Omit<Shortcut, 'id'>[]) => Promise<void>;
   saveCategoryFn: (cat: CustomCategory) => Promise<void>;
   saveAllCategoriesFn: (cats: CustomCategory[]) => Promise<void>;
+  addMsiPlanFn: (movementData: Omit<Movement, 'id'>, months: number) => Promise<void>;
+  deleteMsiPlanFn: (planId: string, movementId: string, accountId: string, amount: number) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -40,9 +44,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
   const [customCats, setCustomCats] = useState<CustomCategory[]>([]);
+  const [msiPlans, setMsiPlans] = useState<MsiPlan[]>([]);
 
   useEffect(() => {
-    if (!user) { setAccounts([]); setMovements([]); setShortcuts([]); setCustomCats([]); return; }
+    if (!user) { setAccounts([]); setMovements([]); setShortcuts([]); setCustomCats([]); setMsiPlans([]); return; }
 
     // One-shot migration: write MXN to Firestore for any non-MXN account
     migrateAllAccountsToCurrency(user.uid, 'MXN').catch(() => {});
@@ -56,7 +61,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setShortcuts(s.length > 0 ? s : DEFAULT_SHORTCUTS.map((d, i) => ({ ...d, id: String(i) })));
     });
     const unsub4 = subscribeCategories(user.uid, setCustomCats);
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+    const unsub5 = subscribeMsiPlans(user.uid, setMsiPlans);
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [user]);
 
   // Merge Firestore custom categories with defaults (Firestore wins on conflict by id)
@@ -173,16 +179,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await saveAllCategories(user.uid, cats);
   }, [user]);
 
+  const addMsiPlanFn = useCallback(async (movementData: Omit<Movement, 'id'>, months: number) => {
+    if (!user) return;
+    const account = accounts.find(a => a.id === movementData.accountId);
+    if (!account) return;
+    const prevBalance = account.balance;
+    const newBalance = prevBalance + movementData.amount; // credit card expense adds to debt
+    const movementId = await addMovement(user.uid, movementData);
+    await updateAccount(user.uid, movementData.accountId, {
+      previousBalance: prevBalance,
+      balance: newBalance,
+    });
+    await addMsiPlan(user.uid, {
+      accountId: movementData.accountId,
+      accountName: movementData.accountName,
+      description: movementData.description,
+      totalAmount: movementData.amount,
+      months,
+      monthlyPayment: movementData.amount / months,
+      startDate: movementData.date,
+      movementId,
+      createdAt: Date.now(),
+    });
+  }, [user, accounts]);
+
+  const deleteMsiPlanFn = useCallback(async (planId: string, movementId: string, accountId: string, amount: number) => {
+    if (!user) return;
+    const account = accounts.find(a => a.id === accountId);
+    await deleteMovement(user.uid, movementId);
+    if (account) {
+      // Reverse credit card expense: subtract amount from debt
+      await updateAccount(user.uid, accountId, {
+        previousBalance: account.balance,
+        balance: Math.max(0, account.balance - amount),
+      });
+    }
+    await deleteMsiPlan(user.uid, planId);
+  }, [user, accounts]);
+
   return (
     <AppContext.Provider value={{
       accounts, movements, shortcuts,
       expenseCategories, incomeCategories,
+      msiPlans,
       totalBalance, balanceChange,
       last24hIncome, last24hIncomeChange,
       last24hExpense, last24hExpenseChange,
       addAccountFn, updateAccountFn, deleteAccountFn,
       addMovementFn, deleteMovementFn, updateShortcutsFn,
       saveCategoryFn, saveAllCategoriesFn,
+      addMsiPlanFn, deleteMsiPlanFn,
     }}>
       {children}
     </AppContext.Provider>
