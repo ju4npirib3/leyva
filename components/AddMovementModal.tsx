@@ -405,8 +405,8 @@ export default function AddMovementModal({
                     </div>
                   </div>
 
-                  {/* MSI toggle — visible whenever there's at least one credit card and type is expense */}
-                  {type === 'expense' && accounts.some(a => a.type === 'credit') && (
+                  {/* MSI toggle — visible for any expense when credit cards exist */}
+                  {type === 'expense' && (
                     <div className="mb-4">
                       <button
                         onClick={() => {
