@@ -63,6 +63,7 @@ export default function AddMovementModal({
   const [establishment, setEstablishment] = useState('');
   const [selectedDate, setSelectedDate] = useState(todayString);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [isMsi, setIsMsi] = useState(false);
   const [msiMonths, setMsiMonths] = useState(12);
   const dragControls = useDragControls();
@@ -132,6 +133,7 @@ export default function AddMovementModal({
     setEstablishment('');
     setSelectedDate(todayString());
     setVoiceError('');
+    setSaveError('');
     setIsMsi(false);
     setMsiMonths(12);
     stopListening();
@@ -208,18 +210,20 @@ export default function AddMovementModal({
     const account = accounts.find(a => a.id === effectiveAccountId);
     if (!account) return;
     setSaving(true);
+    setSaveError('');
     try {
-      const movData = {
+      const movData: Parameters<typeof addMovementFn>[0] = {
         accountId: effectiveAccountId,
         accountName: account.name,
         type,
         amount: parsedAmount,
         category,
         description: description.trim() || category,
-        establishment: establishment.trim() || undefined,
         date: dateStringToTs(selectedDate),
         createdAt: Date.now(),
       };
+      if (establishment.trim()) movData.establishment = establishment.trim();
+
       if (isMsi && type === 'expense' && account.type === 'credit') {
         await addMsiPlanFn(movData, msiMonths);
       } else {
@@ -227,7 +231,7 @@ export default function AddMovementModal({
       }
       resetAndClose();
     } catch {
-      // save failed — stay open so user can retry
+      setSaveError('No se pudo guardar. Verifica tu conexión e intenta de nuevo.');
     } finally {
       setSaving(false);
     }
@@ -546,6 +550,11 @@ export default function AddMovementModal({
                     </div>
                   </div>
 
+                  {saveError && (
+                    <p className="text-xs text-expense font-semibold text-center mb-3 px-2">
+                      ⚠️ {saveError}
+                    </p>
+                  )}
                   <button
                     onClick={handleSubmit}
                     disabled={!canSubmit}
