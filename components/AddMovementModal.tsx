@@ -199,18 +199,21 @@ export default function AddMovementModal({
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
+  const effectiveAccountId = accountId || accounts[0]?.id || '';
+  const parsedAmount = parseFloat(amount);
+  const canSubmit = parsedAmount > 0 && !!category && !!effectiveAccountId && !saving;
+
   async function handleSubmit() {
-    const aid = accountId || accounts[0]?.id;
-    if (!amount || !aid || !category || !user) return;
-    const account = accounts.find(a => a.id === aid);
+    if (!canSubmit || !user) return;
+    const account = accounts.find(a => a.id === effectiveAccountId);
     if (!account) return;
     setSaving(true);
     try {
       const movData = {
-        accountId: aid,
+        accountId: effectiveAccountId,
         accountName: account.name,
         type,
-        amount: parseFloat(amount),
+        amount: parsedAmount,
         category,
         description: description.trim() || category,
         establishment: establishment.trim() || undefined,
@@ -223,13 +226,12 @@ export default function AddMovementModal({
         await addMovementFn(movData);
       }
       resetAndClose();
+    } catch {
+      // save failed — stay open so user can retry
     } finally {
       setSaving(false);
     }
   }
-
-  const effectiveAccountId = accountId || accounts[0]?.id || '';
-  const canSubmit = !!amount && !!category && !!effectiveAccountId && !saving;
 
   return (
     <AnimatePresence>
