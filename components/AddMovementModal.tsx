@@ -405,11 +405,21 @@ export default function AddMovementModal({
                     </div>
                   </div>
 
-                  {/* MSI toggle — only for credit card expense */}
-                  {type === 'expense' && accounts.find(a => a.id === effectiveAccountId)?.type === 'credit' && (
+                  {/* MSI toggle — visible whenever there's at least one credit card and type is expense */}
+                  {type === 'expense' && accounts.some(a => a.type === 'credit') && (
                     <div className="mb-4">
                       <button
-                        onClick={() => setIsMsi(v => !v)}
+                        onClick={() => {
+                          if (!isMsi) {
+                            // Auto-switch to first credit card if current account isn't one
+                            const currentAccount = accounts.find(a => a.id === effectiveAccountId);
+                            if (currentAccount?.type !== 'credit') {
+                              const firstCredit = accounts.find(a => a.type === 'credit');
+                              if (firstCredit) setAccountId(firstCredit.id);
+                            }
+                          }
+                          setIsMsi(v => !v);
+                        }}
                         className={cn(
                           'w-full flex items-center justify-between px-4 py-3.5 rounded-2xl font-semibold transition-all',
                           isMsi ? 'bg-accent text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
