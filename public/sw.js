@@ -1,4 +1,4 @@
-const CACHE = 'kashnubix-v2';
+const CACHE = 'kashnubix-v3';
 
 // On install: activate immediately — don't wait for old tabs to close
 self.addEventListener('install', () => {
