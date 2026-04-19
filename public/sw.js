@@ -1,8 +1,8 @@
-const CACHE = 'kashnubix-v1';
+const CACHE = 'kashnubix-v2';
 
-// On install: take control immediately
+// On install: activate immediately — don't wait for old tabs to close
 self.addEventListener('install', () => {
-  // Don't skip waiting automatically — let the user decide when to update
+  self.skipWaiting();
 });
 
 // On activate: delete old caches
