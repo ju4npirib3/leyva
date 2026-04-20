@@ -59,6 +59,18 @@ export async function deleteMovement(uid: string, id: string): Promise<void> {
   await deleteDoc(doc(db, `users/${uid}/movements/${id}`));
 }
 
+// ── Account order ─────────────────────────────────────────────────────────────
+
+export function subscribeAccountOrder(uid: string, cb: (ids: string[]) => void): Unsubscribe {
+  return onSnapshot(doc(db, `users/${uid}/meta/accountOrder`), snap => {
+    cb((snap.data()?.ids as string[]) ?? []);
+  });
+}
+
+export async function saveAccountOrder(uid: string, ids: string[]): Promise<void> {
+  await setDoc(doc(db, `users/${uid}/meta/accountOrder`), { ids });
+}
+
 // ── Shortcuts ─────────────────────────────────────────────────────────────────
 
 export function subscribeShortcuts(uid: string, cb: (shortcuts: Shortcut[]) => void): Unsubscribe {

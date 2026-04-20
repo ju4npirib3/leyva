@@ -18,7 +18,6 @@ import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
 import MovementDetailSheet from './MovementDetailSheet';
 import EditAccountModal from './EditAccountModal';
 import MsiDetailSheet from './MsiDetailSheet';
-import AddMovementModal from './AddMovementModal';
 import type { Account, Movement, MsiPlan } from '@/types';
 
 interface Props {
@@ -54,7 +53,6 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
   const [selectedMovement, setSelectedMovement] = useState<Movement | null>(null);
   const [showEdit, setShowEdit] = useState(false);
   const [selectedMsi, setSelectedMsi] = useState<MsiPlan | null>(null);
-  const [showAddMove, setShowAddMove] = useState(false);
   const dragControls = useDragControls();
 
   // Body scroll lock
@@ -498,12 +496,6 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
                   <p className="font-bold text-neutral-900 dark:text-white">
                     Movimientos {sortedMoves.length > 0 && <span className="text-neutral-400 font-normal text-sm">({sortedMoves.length})</span>}
                   </p>
-                  <button
-                    onClick={() => setShowAddMove(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white text-sm font-bold rounded-xl active:scale-95 transition-transform"
-                  >
-                    + Nuevo
-                  </button>
                 </div>
                 {sortedMoves.length > 0 ? (
                   <div className="bg-white dark:bg-neutral-800 rounded-2xl overflow-hidden divide-y divide-neutral-100 dark:divide-neutral-700">
@@ -557,12 +549,6 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
             cutoffDay={account?.cutoffDay}
             currency={account?.currency ?? 'MXN'}
             onClose={() => setSelectedMsi(null)}
-          />
-
-          <AddMovementModal
-            open={showAddMove}
-            onClose={() => setShowAddMove(false)}
-            defaultAccountId={account?.id}
           />
         </>
       )}

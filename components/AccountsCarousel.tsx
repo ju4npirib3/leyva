@@ -10,13 +10,20 @@ import {
 import AccountDetailSheet from './AccountDetailSheet';
 import type { Account } from '@/types';
 
-interface Props { onAddAccount: () => void; }
+interface Props {
+  onAddAccount: () => void;
+  onAccountSelected?: (id: string | null) => void;
+}
 
-export default function AccountsCarousel({ onAddAccount }: Props) {
+export default function AccountsCarousel({ onAddAccount, onAccountSelected }: Props) {
   const { accounts, movements, deleteAccountFn } = useApp();
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  // Always derive the live account object from context so balance updates reflect instantly
   const selectedAccount = selectedAccountId ? (accounts.find(a => a.id === selectedAccountId) ?? null) : null;
+
+  function selectAccount(id: string | null) {
+    setSelectedAccountId(id);
+    onAccountSelected?.(id);
+  }
 
   return (
     <motion.div
@@ -36,7 +43,7 @@ export default function AccountsCarousel({ onAddAccount }: Props) {
             key={account.id}
             account={account}
             movements={movements.filter(m => m.accountId === account.id)}
-            onClick={() => setSelectedAccountId(account.id)}
+            onClick={() => selectAccount(account.id)}
           />
         ))}
         <AddAccountCard onClick={onAddAccount} />
@@ -44,8 +51,8 @@ export default function AccountsCarousel({ onAddAccount }: Props) {
 
       <AccountDetailSheet
         account={selectedAccount}
-        onClose={() => setSelectedAccountId(null)}
-        onDelete={async (id) => { await deleteAccountFn(id); setSelectedAccountId(null); }}
+        onClose={() => selectAccount(null)}
+        onDelete={async (id) => { await deleteAccountFn(id); selectAccount(null); }}
       />
     </motion.div>
   );

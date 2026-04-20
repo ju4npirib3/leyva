@@ -27,6 +27,7 @@ export default function HomePage() {
   const [defaultDescription, setDefaultDescription] = useState<string | undefined>();
   const [defaultAccountId, setDefaultAccountId] = useState<string | undefined>();
   const [defaultEstablishment, setDefaultEstablishment] = useState<string | undefined>();
+  const [carouselAccountId, setCarouselAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login');
@@ -71,7 +72,7 @@ export default function HomePage() {
     setDefaultCategory(undefined);
     setDefaultAmount(undefined);
     setDefaultDescription(undefined);
-    setDefaultAccountId(undefined);
+    setDefaultAccountId(carouselAccountId ?? undefined);
     setDefaultEstablishment(undefined);
     setShowAddMovement(true);
   }
@@ -82,7 +83,10 @@ export default function HomePage() {
         <Header />
         <BalanceSection />
         <SummaryCards />
-        <AccountsCarousel onAddAccount={() => setShowAddAccount(true)} />
+        <AccountsCarousel
+          onAddAccount={() => setShowAddAccount(true)}
+          onAccountSelected={setCarouselAccountId}
+        />
         <ShortcutsGrid onShortcut={handleShortcut} />
         <MovementsList />
       </div>
