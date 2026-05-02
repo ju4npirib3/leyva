@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { deleteField } from 'firebase/firestore';
-import { X, Trash2, Copy, Pencil, Check, ChevronDown, Mic, MicOff } from 'lucide-react';
+import { X, Trash2, Copy, Pencil, Check, ChevronDown, Mic, MicOff, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useApp } from '@/contexts/AppContext';
 import { formatCurrency, CATEGORY_ICONS, CATEGORY_COLORS, cn } from '@/lib/utils';
-import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
+import { useVoiceAmount } from '@/lib/useVoiceAmount';
 import type { Movement } from '@/types';
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -65,9 +65,9 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
   const dragControls = useDragControls();
 
   // Voice
-  const [listening, setListening] = useState(false);
-  const [voiceError, setVoiceError] = useState('');
-  const recognitionRef = useRef<any>(null);
+  const { status: voiceStatus, error: voiceError, toggle: toggleVoice, stopAll: stopVoice } = useVoiceAmount(
+    (val) => setEditAmount(val)
+  );
 
   useEffect(() => {
     if (movement) document.body.classList.add('scroll-locked');
@@ -78,7 +78,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
   useEffect(() => {
     setEditing(false);
     setConfirmDelete(false);
-    stopListening();
+    stopVoice();
   }, [movement?.id]);
 
   if (!movement) return null;
@@ -88,67 +88,6 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
   const isTransfer = movement.type === 'transfer';
   const catColor = CATEGORY_COLORS[movement.category] ?? '#8E8E93';
   const categories = movement.type === 'income' ? incomeCategories : expenseCategories;
-
-  // ── Voice input ────────────────────────────────────────────────────────────
-  function startListening() {
-    try {
-      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-      if (!SR) { setVoiceError('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.'); return; }
-      setVoiceError('');
-      const rec = new SR();
-      rec.lang = 'es-MX';
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.maxAlternatives = 3;
-      rec.onstart = () => setListening(true);
-      rec.onresult = (e: any) => {
-        let parsed = '';
-        for (let i = 0; i < e.results[0].length; i++) {
-          parsed = parseSpanishAmount(e.results[0][i].transcript);
-          if (parsed) break;
-        }
-        if (parsed) { setEditAmount(parsed); setVoiceError(''); }
-        else setVoiceError(`Escuché: "${e.results[0][0].transcript}" — intenta de nuevo`);
-      };
-      rec.onerror = (e: any) => {
-        setListening(false);
-        const msgs: Record<string, string> = {
-          'not-allowed': 'Permiso denegado. Permite el micrófono en la barra de dirección.',
-          'audio-capture': 'No se detectó micrófono en este dispositivo.',
-          'network': 'Error de red al procesar el audio.',
-          'service-not-allowed': 'Servicio de voz bloqueado. Verifica los permisos del sitio.',
-          'no-speech': '',
-          'aborted': '',
-        };
-        const msg = msgs[e.error];
-        if (msg === undefined) setVoiceError(`Error de micrófono: ${e.error}`);
-        else if (msg) setVoiceError(msg);
-      };
-      rec.onend = () => setListening(false);
-      try {
-        rec.start();
-        recognitionRef.current = rec;
-      } catch (err: any) {
-        setListening(false);
-        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
-          setVoiceError('Permiso denegado. Permite el micrófono en la barra de dirección.');
-        } else {
-          setVoiceError(`No se pudo iniciar el micrófono: ${err.message ?? err.name}`);
-        }
-      }
-    } catch (err: any) {
-      setVoiceError(`Error inesperado: ${err.message ?? err}`);
-    }
-  }
-
-  function stopListening() {
-    recognitionRef.current?.stop();
-    setListening(false);
-  }
-
-  function toggleVoice() {
-    if (listening) stopListening(); else startListening();
-  }
 
   // ── Copy movement ──────────────────────────────────────────────────────────
   function handleCopy() {
@@ -173,7 +112,6 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
     setEditEstablishment(movement!.establishment ?? '');
     setEditDate(tsToDateString(movement!.date));
     setEditAccountId(movement!.accountId);
-    setVoiceError('');
     setEditing(true);
   }
 
@@ -228,7 +166,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => { setConfirmDelete(false); setEditing(false); stopListening(); onClose(); }}
+            onClick={() => { setConfirmDelete(false); setEditing(false); stopVoice(); onClose(); }}
           />
 
           <motion.div
@@ -247,7 +185,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
               if (info.offset.y > 40 || info.velocity.y > 300) {
                 setConfirmDelete(false);
                 setEditing(false);
-                stopListening();
+                stopVoice();
                 onClose();
               }
             }}
@@ -265,7 +203,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                   {editing ? 'Editar movimiento' : 'Detalle'}
                 </h2>
                 <button
-                  onClick={() => { setConfirmDelete(false); setEditing(false); stopListening(); onClose(); }}
+                  onClick={() => { setConfirmDelete(false); setEditing(false); stopVoice(); onClose(); }}
                   className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800"
                 >
                   <X className="w-4 h-4 dark:text-white" />
@@ -292,26 +230,34 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                       <button
                         type="button"
                         onClick={toggleVoice}
+                        disabled={voiceStatus === 'processing'}
                         className={cn(
                           'absolute right-3 w-9 h-9 rounded-xl flex items-center justify-center transition-all',
-                          listening
-                            ? 'bg-expense text-white animate-pulse'
-                            : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                          voiceStatus === 'listening' ? 'bg-expense text-white animate-pulse' :
+                          voiceStatus === 'processing' ? 'bg-accent text-white' :
+                          'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
                         )}
                       >
-                        {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        {voiceStatus === 'processing'
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : voiceStatus === 'listening'
+                          ? <MicOff className="w-4 h-4" />
+                          : <Mic className="w-4 h-4" />}
                       </button>
                     </div>
-                    {hasMathPreview && (
+                    {hasMathPreview && voiceStatus === 'idle' && (
                       <p className="text-xs text-accent font-semibold mt-1 text-right">= {evaledForSave}</p>
                     )}
-                    {listening && (
+                    {voiceStatus === 'listening' && (
                       <p className="text-xs text-expense font-medium mt-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-expense animate-ping inline-block" />
                         Escuchando… di el monto en español
                       </p>
                     )}
-                    {voiceError && !listening && (
+                    {voiceStatus === 'processing' && (
+                      <p className="text-xs text-accent font-medium mt-1.5">Procesando audio…</p>
+                    )}
+                    {voiceError && voiceStatus === 'idle' && (
                       <p className="text-xs text-neutral-400 mt-1.5">{voiceError}</p>
                     )}
                   </div>
@@ -403,7 +349,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                   <div className="flex gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => { setEditing(false); stopListening(); }}
+                      onClick={() => { setEditing(false); stopVoice(); }}
                       className="flex-1 py-3.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-semibold rounded-2xl"
                     >
                       Cancelar

@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { X, ChevronDown, Mic, MicOff, Store } from 'lucide-react';
+import { X, ChevronDown, Mic, MicOff, Loader2, Store } from 'lucide-react';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn, CATEGORY_COLORS, formatCurrency } from '@/lib/utils';
-import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
+import { useVoiceAmount } from '@/lib/useVoiceAmount';
 import type { MovementType } from '@/types';
 
 function evalMathExpr(expr: string): string {
@@ -84,9 +84,9 @@ export default function AddMovementModal({
   const dragControls = useDragControls();
 
   // Voice
-  const [listening, setListening] = useState(false);
-  const [voiceError, setVoiceError] = useState('');
-  const recognitionRef = useRef<any>(null);
+  const { status: voiceStatus, error: voiceError, toggle: toggleVoice, stopAll: stopVoice } = useVoiceAmount(
+    (val) => setAmount(val)
+  );
 
   // Establishment autocomplete
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -134,7 +134,6 @@ export default function AddMovementModal({
       setAccountId(defaultAccountId ?? accounts[0]?.id ?? '');
       setEstablishment(defaultEstablishment ?? '');
       setSelectedDate(todayString());
-      setVoiceError('');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -148,11 +147,10 @@ export default function AddMovementModal({
     setToAccountId('');
     setEstablishment('');
     setSelectedDate(todayString());
-    setVoiceError('');
     setSaveError('');
     setIsMsi(false);
     setMsiMonths(12);
-    stopListening();
+    stopVoice();
     onClose();
   }
 
@@ -160,80 +158,6 @@ export default function AddMovementModal({
 
   function handleAmountChange(val: string) {
     setAmount(val.replace(/[^0-9.+\-*/() ]/g, ''));
-  }
-
-  // ── Voice input ─────────────────────────────────────────────────────────────
-  function startListening() {
-    try {
-      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-      if (!SR) {
-        setVoiceError('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.');
-        return;
-      }
-      setVoiceError('');
-      const rec = new SR();
-      rec.lang = 'es-MX';
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.maxAlternatives = 3;
-
-      rec.onstart = () => setListening(true);
-
-      rec.onresult = (e: any) => {
-        let parsed = '';
-        for (let i = 0; i < e.results[0].length; i++) {
-          parsed = parseSpanishAmount(e.results[0][i].transcript);
-          if (parsed) break;
-        }
-        if (parsed) {
-          setAmount(parsed);
-          setVoiceError('');
-        } else {
-          setVoiceError(`Escuché: "${e.results[0][0].transcript}" — intenta de nuevo`);
-        }
-      };
-
-      rec.onerror = (e: any) => {
-        setListening(false);
-        const msgs: Record<string, string> = {
-          'not-allowed': 'Permiso denegado. Permite el micrófono en la barra de dirección.',
-          'audio-capture': 'No se detectó micrófono en este dispositivo.',
-          'network': 'Error de red al procesar el audio.',
-          'service-not-allowed': 'Servicio de voz bloqueado. Verifica los permisos del sitio.',
-          'no-speech': '',
-          'aborted': '',
-        };
-        const msg = msgs[e.error];
-        if (msg === undefined) setVoiceError(`Error de micrófono: ${e.error}`);
-        else if (msg) setVoiceError(msg);
-      };
-
-      rec.onend = () => setListening(false);
-
-      try {
-        rec.start();
-        recognitionRef.current = rec;
-      } catch (err: any) {
-        setListening(false);
-        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
-          setVoiceError('Permiso denegado. Permite el micrófono en la barra de dirección.');
-        } else {
-          setVoiceError(`No se pudo iniciar el micrófono: ${err.message ?? err.name}`);
-        }
-      }
-    } catch (err: any) {
-      setVoiceError(`Error inesperado: ${err.message ?? err}`);
-    }
-  }
-
-  function stopListening() {
-    recognitionRef.current?.stop();
-    setListening(false);
-  }
-
-  function toggleVoice() {
-    if (listening) stopListening();
-    else startListening();
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
@@ -445,27 +369,35 @@ export default function AddMovementModal({
                       <button
                         type="button"
                         onClick={toggleVoice}
+                        disabled={voiceStatus === 'processing'}
                         className={cn(
                           'absolute right-3 w-9 h-9 rounded-xl flex items-center justify-center transition-all',
-                          listening
-                            ? 'bg-expense text-white animate-pulse'
-                            : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                          voiceStatus === 'listening' ? 'bg-expense text-white animate-pulse' :
+                          voiceStatus === 'processing' ? 'bg-accent text-white' :
+                          'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
                         )}
                       >
-                        {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        {voiceStatus === 'processing'
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : voiceStatus === 'listening'
+                          ? <MicOff className="w-4 h-4" />
+                          : <Mic className="w-4 h-4" />}
                       </button>
                     </div>
 
-                    {hasMathPreview && !listening && (
+                    {hasMathPreview && voiceStatus === 'idle' && (
                       <p className="text-xs text-accent font-semibold mt-1 text-right">= {evaluatedAmount}</p>
                     )}
-                    {listening && (
+                    {voiceStatus === 'listening' && (
                       <p className="text-xs text-expense font-medium mt-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-expense animate-ping inline-block" />
                         Escuchando… di el monto en español
                       </p>
                     )}
-                    {voiceError && !listening && (
+                    {voiceStatus === 'processing' && (
+                      <p className="text-xs text-accent font-medium mt-1.5">Procesando audio…</p>
+                    )}
+                    {voiceError && voiceStatus === 'idle' && (
                       <p className="text-xs text-neutral-400 mt-1.5">{voiceError}</p>
                     )}
                   </div>
