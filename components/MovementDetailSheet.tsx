@@ -91,31 +91,54 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
 
   // ── Voice input ────────────────────────────────────────────────────────────
   function startListening() {
-    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    if (!SR) { setVoiceError('Tu navegador no soporta reconocimiento de voz'); return; }
-    setVoiceError('');
-    const rec = new SR();
-    rec.lang = 'es-MX';
-    rec.continuous = false;
-    rec.interimResults = false;
-    rec.maxAlternatives = 3;
-    rec.onstart = () => setListening(true);
-    rec.onresult = (e: any) => {
-      let parsed = '';
-      for (let i = 0; i < e.results[0].length; i++) {
-        parsed = parseSpanishAmount(e.results[0][i].transcript);
-        if (parsed) break;
+    try {
+      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+      if (!SR) { setVoiceError('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.'); return; }
+      setVoiceError('');
+      const rec = new SR();
+      rec.lang = 'es-MX';
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.maxAlternatives = 3;
+      rec.onstart = () => setListening(true);
+      rec.onresult = (e: any) => {
+        let parsed = '';
+        for (let i = 0; i < e.results[0].length; i++) {
+          parsed = parseSpanishAmount(e.results[0][i].transcript);
+          if (parsed) break;
+        }
+        if (parsed) { setEditAmount(parsed); setVoiceError(''); }
+        else setVoiceError(`Escuché: "${e.results[0][0].transcript}" — intenta de nuevo`);
+      };
+      rec.onerror = (e: any) => {
+        setListening(false);
+        const msgs: Record<string, string> = {
+          'not-allowed': 'Permiso denegado. Permite el micrófono en la barra de dirección.',
+          'audio-capture': 'No se detectó micrófono en este dispositivo.',
+          'network': 'Error de red al procesar el audio.',
+          'service-not-allowed': 'Servicio de voz bloqueado. Verifica los permisos del sitio.',
+          'no-speech': '',
+          'aborted': '',
+        };
+        const msg = msgs[e.error];
+        if (msg === undefined) setVoiceError(`Error de micrófono: ${e.error}`);
+        else if (msg) setVoiceError(msg);
+      };
+      rec.onend = () => setListening(false);
+      try {
+        rec.start();
+        recognitionRef.current = rec;
+      } catch (err: any) {
+        setListening(false);
+        if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+          setVoiceError('Permiso denegado. Permite el micrófono en la barra de dirección.');
+        } else {
+          setVoiceError(`No se pudo iniciar el micrófono: ${err.message ?? err.name}`);
+        }
       }
-      if (parsed) { setEditAmount(parsed); setVoiceError(''); }
-      else setVoiceError(`Escuché: "${e.results[0][0].transcript}" — intenta de nuevo`);
-    };
-    rec.onerror = (e: any) => {
-      setListening(false);
-      if (e.error !== 'no-speech' && e.error !== 'aborted') setVoiceError(`Error de micrófono: ${e.error}`);
-    };
-    rec.onend = () => setListening(false);
-    rec.start();
-    recognitionRef.current = rec;
+    } catch (err: any) {
+      setVoiceError(`Error inesperado: ${err.message ?? err}`);
+    }
   }
 
   function stopListening() {
