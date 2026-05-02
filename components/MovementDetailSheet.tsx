@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { X, Trash2, Copy, Pencil, Check } from 'lucide-react';
+import { deleteField } from 'firebase/firestore';
+import { X, Trash2, Copy, Pencil, Check, ChevronDown, Mic, MicOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useApp } from '@/contexts/AppContext';
 import { formatCurrency, CATEGORY_ICONS, CATEGORY_COLORS, cn } from '@/lib/utils';
+import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
 import type { Movement } from '@/types';
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -27,12 +30,27 @@ function todayString() {
   return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-');
 }
 
+function evalMathExpr(expr: string): string {
+  const s = expr.replace(/\s/g, '');
+  if (!s || !/[+\-*/]/.test(s.replace(/^-/, ''))) return expr;
+  if (!/^-?[\d.+\-*/()]+$/.test(s)) return expr;
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + s + ')')();
+    if (typeof result === 'number' && isFinite(result) && result >= 0) {
+      return String(Math.round(result * 100) / 100);
+    }
+  } catch { /* invalid expression */ }
+  return expr;
+}
+
 interface Props {
   movement: Movement | null;
   onClose: () => void;
 }
 
 export default function MovementDetailSheet({ movement, onClose }: Props) {
+  const router = useRouter();
   const { accounts, msiPlans, expenseCategories, incomeCategories, deleteMovementFn, deleteMsiPlanFn, updateMovementFn } = useApp();
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -42,8 +60,14 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
   const [editDescription, setEditDescription] = useState('');
   const [editEstablishment, setEditEstablishment] = useState('');
   const [editDate, setEditDate] = useState('');
+  const [editAccountId, setEditAccountId] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const dragControls = useDragControls();
+
+  // Voice
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     if (movement) document.body.classList.add('scroll-locked');
@@ -51,10 +75,10 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
     return () => document.body.classList.remove('scroll-locked');
   }, [movement]);
 
-  // Reset editing state when movement changes
   useEffect(() => {
     setEditing(false);
     setConfirmDelete(false);
+    stopListening();
   }, [movement?.id]);
 
   if (!movement) return null;
@@ -65,26 +89,86 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
   const catColor = CATEGORY_COLORS[movement.category] ?? '#8E8E93';
   const categories = movement.type === 'income' ? incomeCategories : expenseCategories;
 
+  // ── Voice input ────────────────────────────────────────────────────────────
+  function startListening() {
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SR) { setVoiceError('Tu navegador no soporta reconocimiento de voz'); return; }
+    setVoiceError('');
+    const rec = new SR();
+    rec.lang = 'es-MX';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 3;
+    rec.onstart = () => setListening(true);
+    rec.onresult = (e: any) => {
+      let parsed = '';
+      for (let i = 0; i < e.results[0].length; i++) {
+        parsed = parseSpanishAmount(e.results[0][i].transcript);
+        if (parsed) break;
+      }
+      if (parsed) { setEditAmount(parsed); setVoiceError(''); }
+      else setVoiceError(`Escuché: "${e.results[0][0].transcript}" — intenta de nuevo`);
+    };
+    rec.onerror = (e: any) => {
+      setListening(false);
+      if (e.error !== 'no-speech' && e.error !== 'aborted') setVoiceError(`Error de micrófono: ${e.error}`);
+    };
+    rec.onend = () => setListening(false);
+    rec.start();
+    recognitionRef.current = rec;
+  }
+
+  function stopListening() {
+    recognitionRef.current?.stop();
+    setListening(false);
+  }
+
+  function toggleVoice() {
+    if (listening) stopListening(); else startListening();
+  }
+
+  // ── Copy movement ──────────────────────────────────────────────────────────
+  function handleCopy() {
+    const params = new URLSearchParams({
+      copy: '1',
+      type: movement!.type,
+      amount: String(movement!.amount),
+      category: movement!.category,
+      description: movement!.description,
+      accountId: movement!.accountId,
+    });
+    if (movement!.establishment) params.set('establishment', movement!.establishment);
+    onClose();
+    router.push(`/home?${params.toString()}`);
+  }
+
+  // ── Edit ───────────────────────────────────────────────────────────────────
   function startEdit() {
     setEditAmount(String(movement!.amount));
     setEditCategory(movement!.category);
     setEditDescription(movement!.description);
     setEditEstablishment(movement!.establishment ?? '');
     setEditDate(tsToDateString(movement!.date));
+    setEditAccountId(movement!.accountId);
+    setVoiceError('');
     setEditing(true);
   }
 
   async function handleSaveEdit() {
-    if (!movement || !editAmount || !editCategory) return;
+    if (!movement || !editCategory) return;
+    const evaluated = evalMathExpr(editAmount);
+    const parsedAmt = parseFloat(evaluated);
+    if (!parsedAmt || parsedAmt <= 0) return;
     setEditSaving(true);
     try {
       const updates: Partial<Omit<Movement, 'id'>> = {
-        amount: parseFloat(editAmount),
+        amount: parsedAmt,
         category: editCategory,
         description: editDescription.trim() || editCategory,
         date: dateStringToTs(editDate),
       };
-      if (editEstablishment.trim()) updates.establishment = editEstablishment.trim();
+      updates.establishment = editEstablishment.trim() || deleteField() as unknown as string;
+      if (editAccountId && editAccountId !== movement.accountId) updates.accountId = editAccountId;
       await updateMovementFn(movement, updates);
       setEditing(false);
       onClose();
@@ -108,6 +192,10 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
     onClose();
   }
 
+  const evaledForSave = evalMathExpr(editAmount);
+  const parsedForSave = parseFloat(evaledForSave);
+  const hasMathPreview = editAmount !== evaledForSave && !isNaN(parsedForSave) && parsedForSave > 0;
+
   return (
     <AnimatePresence>
       {movement && (
@@ -117,7 +205,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => { setConfirmDelete(false); setEditing(false); onClose(); }}
+            onClick={() => { setConfirmDelete(false); setEditing(false); stopListening(); onClose(); }}
           />
 
           <motion.div
@@ -136,6 +224,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
               if (info.offset.y > 40 || info.velocity.y > 300) {
                 setConfirmDelete(false);
                 setEditing(false);
+                stopListening();
                 onClose();
               }
             }}
@@ -153,7 +242,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                   {editing ? 'Editar movimiento' : 'Detalle'}
                 </h2>
                 <button
-                  onClick={() => { setConfirmDelete(false); setEditing(false); onClose(); }}
+                  onClick={() => { setConfirmDelete(false); setEditing(false); stopListening(); onClose(); }}
                   className="p-2 rounded-full bg-neutral-100 dark:bg-neutral-800"
                 >
                   <X className="w-4 h-4 dark:text-white" />
@@ -170,13 +259,38 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                       <span className="absolute left-4 text-neutral-400 font-bold text-xl z-10">$</span>
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode="text"
                         value={editAmount}
-                        onChange={e => setEditAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                        className="w-full pl-9 pr-4 py-4 bg-neutral-100 dark:bg-neutral-800 rounded-2xl text-2xl font-black dark:text-white outline-none focus:ring-2 focus:ring-accent/30"
+                        onChange={e => setEditAmount(e.target.value.replace(/[^0-9.+\-*/() ]/g, ''))}
+                        onBlur={() => { const e = evalMathExpr(editAmount); if (e !== editAmount) setEditAmount(e); }}
+                        className="w-full pl-9 pr-14 py-4 bg-neutral-100 dark:bg-neutral-800 rounded-2xl text-2xl font-black dark:text-white outline-none focus:ring-2 focus:ring-accent/30"
                         style={{ fontVariantNumeric: 'tabular-nums' }}
                       />
+                      <button
+                        type="button"
+                        onClick={toggleVoice}
+                        className={cn(
+                          'absolute right-3 w-9 h-9 rounded-xl flex items-center justify-center transition-all',
+                          listening
+                            ? 'bg-expense text-white animate-pulse'
+                            : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                        )}
+                      >
+                        {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      </button>
                     </div>
+                    {hasMathPreview && (
+                      <p className="text-xs text-accent font-semibold mt-1 text-right">= {evaledForSave}</p>
+                    )}
+                    {listening && (
+                      <p className="text-xs text-expense font-medium mt-1.5 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-expense animate-ping inline-block" />
+                        Escuchando… di el monto en español
+                      </p>
+                    )}
+                    {voiceError && !listening && (
+                      <p className="text-xs text-neutral-400 mt-1.5">{voiceError}</p>
+                    )}
                   </div>
 
                   {/* Category */}
@@ -226,6 +340,23 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                     />
                   </div>
 
+                  {/* Account */}
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-1 block">Cuenta</label>
+                    <div className="relative">
+                      <select
+                        value={editAccountId}
+                        onChange={e => setEditAccountId(e.target.value)}
+                        className="w-full appearance-none pl-4 pr-10 py-3.5 bg-neutral-100 dark:bg-neutral-800 rounded-2xl font-semibold dark:text-white outline-none focus:ring-2 focus:ring-accent/30"
+                      >
+                        {accounts.map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+                    </div>
+                  </div>
+
                   {/* Date */}
                   <div>
                     <label className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-1 block">Fecha</label>
@@ -249,7 +380,7 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                   <div className="flex gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => setEditing(false)}
+                      onClick={() => { setEditing(false); stopListening(); }}
                       className="flex-1 py-3.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-semibold rounded-2xl"
                     >
                       Cancelar
@@ -312,6 +443,15 @@ export default function MovementDetailSheet({ movement, onClose }: Props) {
                   </div>
 
                   <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 font-bold rounded-2xl active:scale-[0.98] transition-transform"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copiar
+                    </button>
+
                     {!isTransfer && (
                       <button
                         type="button"

@@ -9,6 +9,20 @@ import { cn, CATEGORY_COLORS, formatCurrency } from '@/lib/utils';
 import { parseSpanishAmount } from '@/lib/parseSpanishAmount';
 import type { MovementType } from '@/types';
 
+function evalMathExpr(expr: string): string {
+  const s = expr.replace(/\s/g, '');
+  if (!s || !/[+\-*/]/.test(s.replace(/^-/, ''))) return expr;
+  if (!/^-?[\d.+\-*/()]+$/.test(s)) return expr;
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + s + ')')();
+    if (typeof result === 'number' && isFinite(result) && result >= 0) {
+      return String(Math.round(result * 100) / 100);
+    }
+  } catch { /* invalid expression */ }
+  return expr;
+}
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function todayString(): string {
   const d = new Date();
@@ -145,8 +159,7 @@ export default function AddMovementModal({
   const categories = type === 'income' ? incomeCategories : expenseCategories;
 
   function handleAmountChange(val: string) {
-    const clean = val.replace(/[^0-9.]/g, '').replace(/^(\d*\.?\d*).*$/, '$1');
-    setAmount(clean);
+    setAmount(val.replace(/[^0-9.+\-*/() ]/g, ''));
   }
 
   // ── Voice input ─────────────────────────────────────────────────────────────
@@ -205,7 +218,9 @@ export default function AddMovementModal({
   // ── Submit ───────────────────────────────────────────────────────────────────
   const effectiveAccountId = accountId || accounts[0]?.id || '';
   const effectiveToAccountId = toAccountId || accounts.find(a => a.id !== effectiveAccountId)?.id || '';
-  const parsedAmount = parseFloat(amount);
+  const evaluatedAmount = evalMathExpr(amount);
+  const parsedAmount = parseFloat(evaluatedAmount);
+  const hasMathPreview = amount !== evaluatedAmount && !isNaN(parsedAmount) && parsedAmount > 0;
 
   const isTransfer = type === 'transfer';
   const canSubmit = isTransfer
@@ -234,7 +249,7 @@ export default function AddMovementModal({
           accountId: effectiveAccountId,
           accountName: account.name,
           type,
-          amount: parsedAmount,
+          amount: parseFloat(evalMathExpr(amount)),
           category,
           description: description.trim() || category,
           date: dateStringToTs(selectedDate),
@@ -398,10 +413,11 @@ export default function AddMovementModal({
                       <span className="absolute left-4 text-neutral-400 font-bold text-xl z-10">$</span>
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode="text"
                         placeholder="0.00"
                         value={amount}
                         onChange={e => handleAmountChange(e.target.value)}
+                        onBlur={() => { const e = evalMathExpr(amount); if (e !== amount) setAmount(e); }}
                         className="flex-1 pl-9 pr-14 py-4 bg-neutral-100 dark:bg-neutral-800 rounded-2xl text-2xl font-black dark:text-white outline-none focus:ring-2 focus:ring-accent/30 w-full"
                         style={{ fontVariantNumeric: 'tabular-nums' }}
                       />
@@ -419,6 +435,9 @@ export default function AddMovementModal({
                       </button>
                     </div>
 
+                    {hasMathPreview && !listening && (
+                      <p className="text-xs text-accent font-semibold mt-1 text-right">= {evaluatedAmount}</p>
+                    )}
                     {listening && (
                       <p className="text-xs text-expense font-medium mt-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-expense animate-ping inline-block" />

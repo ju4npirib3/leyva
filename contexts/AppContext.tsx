@@ -154,10 +154,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateMovementFn = useCallback(async (old: Movement, updates: Partial<Omit<Movement, 'id'>>) => {
     if (!user) return;
-    await editMovement(user.uid, old.id, updates);
+
+    const accountChanged = updates.accountId !== undefined && updates.accountId !== old.accountId;
     const amountChanged = updates.amount !== undefined && updates.amount !== old.amount;
     const typeChanged = updates.type !== undefined && updates.type !== old.type;
-    if (amountChanged || typeChanged) {
+
+    if (accountChanged) {
+      const newAccount = accounts.find(a => a.id === updates.accountId);
+      if (newAccount) updates.accountName = newAccount.name;
+    }
+
+    await editMovement(user.uid, old.id, updates);
+
+    if (accountChanged) {
+      const oldAccount = accounts.find(a => a.id === old.accountId);
+      const newAccount = accounts.find(a => a.id === updates.accountId);
+      const amount = updates.amount ?? old.amount;
+      const type = updates.type ?? old.type;
+
+      if (oldAccount) {
+        const isCredit = oldAccount.type === 'credit';
+        const oldEffect = isCredit ? (old.type === 'expense' ? old.amount : -old.amount) : (old.type === 'income' ? old.amount : -old.amount);
+        await updateAccount(user.uid, old.accountId, {
+          previousBalance: oldAccount.balance,
+          balance: oldAccount.balance - oldEffect,
+        });
+      }
+      if (newAccount) {
+        const isCredit = newAccount.type === 'credit';
+        const newEffect = isCredit ? (type === 'expense' ? amount : -amount) : (type === 'income' ? amount : -amount);
+        await updateAccount(user.uid, updates.accountId!, {
+          previousBalance: newAccount.balance,
+          balance: newAccount.balance + newEffect,
+        });
+      }
+    } else if (amountChanged || typeChanged) {
       const account = accounts.find(a => a.id === old.accountId);
       if (account) {
         const isCredit = account.type === 'credit';
