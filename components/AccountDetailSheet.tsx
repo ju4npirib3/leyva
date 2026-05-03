@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { X, Trash2, Pencil, TrendingUp, TrendingDown, CreditCard, Calendar, CheckCircle } from 'lucide-react';
+import { X, Trash2, Pencil, TrendingUp, TrendingDown, CreditCard, Calendar, CheckCircle, ChevronDown } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
@@ -46,8 +46,9 @@ function calcPaidMonths(startDate: number, cutoffDay: number | undefined, totalM
 }
 
 export default function AccountDetailSheet({ account, onClose, onDelete }: Props) {
-  const { movements, addMovementFn, msiPlans } = useApp();
+  const { movements, addMovementFn, msiPlans, accounts, payCardFn } = useApp();
   const [payAmount, setPayAmount] = useState('');
+  const [paySourceAccountId, setPaySourceAccountId] = useState('');
   const [paying, setPaying] = useState(false);
   const [showPayInput, setShowPayInput] = useState(false);
   const [selectedMovement, setSelectedMovement] = useState<Movement | null>(null);
@@ -136,22 +137,18 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
     ? (effectiveBalance === 0 ? '#00C07F' : '#FF3B30')
     : (lastBal >= firstBal ? '#00C07F' : '#FF3B30');
 
+  const nonCreditAccounts = accounts.filter(a => a.type !== 'credit');
+  const paySourceAccount = nonCreditAccounts.find(a => a.id === paySourceAccountId) ?? nonCreditAccounts[0] ?? null;
+  const payAmt = parseFloat(payAmount) || 0;
+  const insufficientFunds = !!paySourceAccount && payAmt > 0 && paySourceAccount.balance < payAmt;
+
   async function handlePay() {
-    const amt = parseFloat(payAmount) || account!.balance;
-    if (amt <= 0) return;
+    if (payAmt <= 0 || !paySourceAccount || insufficientFunds) return;
     setPaying(true);
     try {
-      await addMovementFn({
-        accountId: account!.id,
-        accountName: account!.name,
-        type: 'income',
-        amount: amt,
-        category: 'Pago de tarjeta',
-        description: `Pago tarjeta ${account!.name}`,
-        date: Date.now(),
-        createdAt: Date.now(),
-      });
+      await payCardFn(account!.id, paySourceAccount.id, payAmt);
       setPayAmount('');
+      setPaySourceAccountId('');
       setShowPayInput(false);
     } finally {
       setPaying(false);
@@ -353,7 +350,11 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
                 <div className="mx-4 mt-3">
                   {!showPayInput ? (
                     <button
-                      onClick={() => { setPayAmount(String(effectiveBalance)); setShowPayInput(true); }}
+                      onClick={() => {
+                        setPayAmount(String(effectiveBalance));
+                        setPaySourceAccountId(nonCreditAccounts[0]?.id ?? '');
+                        setShowPayInput(true);
+                      }}
                       className="w-full py-3.5 bg-income text-white font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
                     >
                       <CheckCircle className="w-5 h-5" />
@@ -373,16 +374,44 @@ export default function AccountDetailSheet({ account, onClose, onDelete }: Props
                           autoFocus
                         />
                       </div>
+                      {nonCreditAccounts.length > 0 ? (
+                        <div className="mb-3">
+                          <p className="text-xs text-neutral-500 font-medium mb-1.5">Cuenta de origen</p>
+                          <div className="relative">
+                            <select
+                              value={paySourceAccount?.id ?? ''}
+                              onChange={e => setPaySourceAccountId(e.target.value)}
+                              className="w-full px-4 py-2.5 bg-white dark:bg-neutral-800 rounded-xl text-sm font-semibold dark:text-white outline-none focus:ring-2 focus:ring-income/30 appearance-none"
+                            >
+                              {nonCreditAccounts.map(a => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name} — {formatCurrency(a.balance, a.currency)}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+                          </div>
+                          {insufficientFunds && (
+                            <p className="text-xs text-expense font-semibold mt-1.5">
+                              ⚠️ Saldo insuficiente — disponible: {formatCurrency(paySourceAccount!.balance, paySourceAccount!.currency)}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-expense font-semibold mb-3">
+                          ⚠️ No tienes cuentas disponibles para realizar el pago
+                        </p>
+                      )}
                       <div className="flex gap-2">
                         <button
-                          onClick={() => { setShowPayInput(false); setPayAmount(''); }}
+                          onClick={() => { setShowPayInput(false); setPayAmount(''); setPaySourceAccountId(''); }}
                           className="flex-1 py-2.5 bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 font-semibold rounded-xl"
                         >
                           Cancelar
                         </button>
                         <button
                           onClick={handlePay}
-                          disabled={paying || !payAmount}
+                          disabled={paying || !payAmount || !paySourceAccount || insufficientFunds}
                           className="flex-1 py-2.5 bg-income text-white font-bold rounded-xl disabled:opacity-40"
                         >
                           {paying ? 'Pagando...' : 'Confirmar pago'}

@@ -33,6 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Fallback: if Firebase doesn't respond in 6s, unblock the app
+    const timeout = setTimeout(() => setLoading(false), 6000);
+
     getRedirectResult(auth)
       .then(result => {
         if (result?.user) setUser(toAppUser(result.user));
@@ -45,10 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
     const unsub = onAuthStateChanged(auth, (firebaseUser: User | null) => {
+      clearTimeout(timeout);
       setUser(firebaseUser ? toAppUser(firebaseUser) : null);
       setLoading(false);
     });
-    return unsub;
+    return () => { clearTimeout(timeout); unsub(); };
   }, []);
 
   async function signInWithGoogle() {

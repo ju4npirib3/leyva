@@ -38,6 +38,7 @@ interface AppContextValue {
   saveAllCategoriesFn: (cats: CustomCategory[]) => Promise<void>;
   addMsiPlanFn: (movementData: Omit<Movement, 'id'>, months: number) => Promise<void>;
   deleteMsiPlanFn: (planId: string, movementId: string, accountId: string, amount: number) => Promise<void>;
+  payCardFn: (creditAccountId: string, sourceAccountId: string, amount: number) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -387,6 +388,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await deleteMsiPlan(user.uid, planId);
   }, [user, accounts]);
 
+  const payCardFn = useCallback(async (
+    creditAccountId: string,
+    sourceAccountId: string,
+    amount: number,
+  ) => {
+    if (!user) return;
+    const creditAccount = accounts.find(a => a.id === creditAccountId);
+    const sourceAccount = accounts.find(a => a.id === sourceAccountId);
+    if (!creditAccount || !sourceAccount) return;
+    const now = Date.now();
+    const desc = `Pago tarjeta ${creditAccount.name}`;
+    await addMovement(user.uid, {
+      accountId: creditAccountId,
+      accountName: creditAccount.name,
+      type: 'income',
+      amount,
+      category: 'Pago de tarjeta',
+      description: desc,
+      date: now,
+      createdAt: now,
+    });
+    await addMovement(user.uid, {
+      accountId: sourceAccountId,
+      accountName: sourceAccount.name,
+      type: 'expense',
+      amount,
+      category: 'Pago de tarjeta',
+      description: desc,
+      date: now,
+      createdAt: now,
+    });
+    await updateAccount(user.uid, creditAccountId, {
+      previousBalance: creditAccount.balance,
+      balance: Math.max(0, creditAccount.balance - amount),
+    });
+    await updateAccount(user.uid, sourceAccountId, {
+      previousBalance: sourceAccount.balance,
+      balance: sourceAccount.balance - amount,
+    });
+  }, [user, accounts]);
+
   return (
     <AppContext.Provider value={{
       accounts, movements, shortcuts,
@@ -398,7 +440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addAccountFn, updateAccountFn, deleteAccountFn,
       addMovementFn, updateMovementFn, deleteMovementFn, addTransferFn, updateShortcutsFn, reorderAccountsFn,
       saveCategoryFn, saveAllCategoriesFn,
-      addMsiPlanFn, deleteMsiPlanFn,
+      addMsiPlanFn, deleteMsiPlanFn, payCardFn,
     }}>
       {children}
     </AppContext.Provider>

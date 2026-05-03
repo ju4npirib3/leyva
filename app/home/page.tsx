@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import BottomNav from '@/components/BottomNav';
@@ -14,10 +14,40 @@ import AddMovementModal from '@/components/AddMovementModal';
 import AddAccountModal from '@/components/AddAccountModal';
 import type { MovementType } from '@/types';
 
+interface CopyParams {
+  type: MovementType;
+  category?: string;
+  amount?: string;
+  description?: string;
+  accountId?: string;
+  establishment?: string;
+}
+
+// Isolated so useSearchParams is inside a Suspense boundary (Next.js 14 requirement)
+function CopyMovementHandler({ onCopy }: { onCopy: (p: CopyParams) => void }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('copy') !== '1') return;
+    onCopy({
+      type: (searchParams.get('type') as MovementType) ?? 'expense',
+      category: searchParams.get('category') ?? undefined,
+      amount: searchParams.get('amount') ?? undefined,
+      description: searchParams.get('description') ?? undefined,
+      accountId: searchParams.get('accountId') ?? undefined,
+      establishment: searchParams.get('establishment') ?? undefined,
+    });
+    router.replace('/home', { scroll: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  return null;
+}
+
 export default function HomePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [showAddMovement, setShowAddMovement] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -33,21 +63,15 @@ export default function HomePage() {
     if (!loading && !user) router.replace('/login');
   }, [user, loading, router]);
 
-  // Handle "copy movement" redirect — open modal with pre-filled data
-  useEffect(() => {
-    if (searchParams.get('copy') === '1') {
-      setDefaultType((searchParams.get('type') as MovementType) ?? 'expense');
-      setDefaultCategory(searchParams.get('category') ?? undefined);
-      setDefaultAmount(searchParams.get('amount') ?? undefined);
-      setDefaultDescription(searchParams.get('description') ?? undefined);
-      setDefaultAccountId(searchParams.get('accountId') ?? undefined);
-      setDefaultEstablishment(searchParams.get('establishment') ?? undefined);
-      setShowAddMovement(true);
-      // Clean URL without reloading
-      router.replace('/home', { scroll: false });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  function handleCopy(p: CopyParams) {
+    setDefaultType(p.type);
+    setDefaultCategory(p.category);
+    setDefaultAmount(p.amount);
+    setDefaultDescription(p.description);
+    setDefaultAccountId(p.accountId);
+    setDefaultEstablishment(p.establishment);
+    setShowAddMovement(true);
+  }
 
   if (loading || !user) {
     return (
@@ -79,6 +103,10 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-bg-light dark:bg-bg-dark safe-top">
+      <Suspense>
+        <CopyMovementHandler onCopy={handleCopy} />
+      </Suspense>
+
       <div className="pb-28 overflow-y-auto">
         <Header />
         <BalanceSection />
